@@ -1,0 +1,556 @@
+<!-- ══════════════════════════════════════════════════════════════
+     CodeTrail App Template
+     ══════════════════════════════════════════════════════════════ -->
+
+<!-- ── Navbar ──────────────────────────────────────────────── -->
+<nav class="navbar" role="navigation" aria-label="Main navigation">
+  <div class="navbar-inner">
+    <div class="logo">
+      <div class="logo-mark" aria-hidden="true">🔍</div>
+      <span class="logo-text">Code<span>Trail</span></span>
+    </div>
+    <div class="navbar-right">
+      <div class="status-indicator" *ngIf="result">
+        <div class="pulse-dot" aria-hidden="true"></div>
+        Analysis complete
+      </div>
+      <button id="reset-btn" class="btn btn-ghost" *ngIf="result || error" (click)="reset()">
+        ← New Analysis
+      </button>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Hero + Form (shown when no result) ───────────────────── -->
+<main *ngIf="!result" class="hero-section">
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="hero-eyebrow">
+      <span>🧪</span> C# / .NET • GitHub • Gemini AI
+    </div>
+    <h1 id="hero-title" class="hero-title">
+      Trace the <span class="gradient-text">Change Impact</span><br>
+      before it reaches production
+    </h1>
+    <p class="hero-subtitle">
+      Paste a public GitHub repository URL and commit SHA. CodeTrail identifies
+      changed files, finds related C# types via static analysis, and uses AI
+      to explain plausible impacts and suggest targeted tests.
+    </p>
+
+    <!-- ── Analysis Form ── -->
+    <div class="form-card" role="form" aria-label="Analysis input">
+      <div class="form-grid">
+        <div class="form-group">
+          <label class="form-label" for="repo-url-input">GitHub Repository URL</label>
+          <input
+            id="repo-url-input"
+            type="url"
+            class="form-input"
+            [class.has-error]="repoUrlError"
+            placeholder="https://github.com/owner/repository"
+            [(ngModel)]="repoUrl"
+            [disabled]="loading"
+            (keydown.enter)="analyze()"
+            aria-describedby="repo-url-error"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <span id="repo-url-error" class="form-error" *ngIf="repoUrlError" role="alert">
+            ⚠ {{ repoUrlError }}
+          </span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="commit-sha-input">Commit SHA</label>
+          <input
+            id="commit-sha-input"
+            type="text"
+            class="form-input"
+            [class.has-error]="shaError"
+            placeholder="abc1234"
+            [(ngModel)]="commitSha"
+            [disabled]="loading"
+            (keydown.enter)="analyze()"
+            aria-describedby="commit-sha-error"
+            autocomplete="off"
+            spellcheck="false"
+            maxlength="40"
+          />
+          <span id="commit-sha-error" class="form-error" *ngIf="shaError" role="alert">
+            ⚠ {{ shaError }}
+          </span>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span style="font-size: 0.8rem; color: #94a3b8;">Quick Demo Presets:</span>
+          <button type="button" class="btn btn-ghost" style="font-size: 0.75rem; padding: 2px 8px;" (click)="toggleApiKeyInput()">
+            {{ showApiKeyInput ? 'Hide Gemini Key' : '🔑 Custom Gemini Key (Optional)' }}
+          </button>
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button
+            *ngFor="let p of demoPresets"
+            type="button"
+            class="btn btn-ghost"
+            style="font-size: 0.8rem; border: 1px solid rgba(255,255,255,0.1); text-align: left;"
+            (click)="loadPreset(p)"
+            [disabled]="loading"
+          >
+            ⚡ <strong>{{ p.title }}</strong>: <span style="color: #94a3b8;">{{ p.subtitle }}</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="form-group" *ngIf="showApiKeyInput" style="margin-top: 12px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px;">
+        <label class="form-label" for="api-key-input">Gemini API Key (Optional)</label>
+        <input
+          id="api-key-input"
+          type="password"
+          class="form-input"
+          placeholder="AIzaSy..."
+          [(ngModel)]="geminiApiKey"
+          [disabled]="loading"
+          autocomplete="off"
+        />
+        <span style="font-size: 0.75rem; color: #94a3b8; display: block; margin-top: 4px;">
+          Leave empty to use server GEMINI_API_KEY or static analysis fallback.
+        </span>
+      </div>
+
+      <div class="form-actions" style="margin-top: 16px;">
+        <div class="form-hint">
+          <span>🔒</span>
+          Public repositories only. Static analysis runs without executing any code.
+        </div>
+        <button
+          id="analyze-btn"
+          class="btn btn-primary"
+          (click)="analyze()"
+          [disabled]="loading"
+          aria-busy="loading"
+        >
+          <div class="spinner" *ngIf="loading" aria-hidden="true"></div>
+          <span *ngIf="!loading">🔍 Analyze Commit</span>
+          <span *ngIf="loading">Analyzing…</span>
+        </button>
+      </div>
+
+      <!-- Progress message while loading -->
+      <div class="alert alert-info" style="margin-top: 16px" *ngIf="loading" role="status" aria-live="polite">
+        <span>⏳</span>
+        <span>Fetching commit diff, scanning C# source files, and generating AI report — this may take 15–30 seconds for large repositories.</span>
+      </div>
+    </div>
+
+    <!-- Error display -->
+    <div class="error-card" *ngIf="error" role="alert" style="margin-top: 24px;">
+      <div class="error-icon">❌</div>
+      <div class="error-content">
+        <div class="error-title">Analysis Failed</div>
+        <div class="error-msg">{{ error }}</div>
+      </div>
+    </div>
+
+    <p class="disclaimer" style="margin-top: 24px">
+      CodeTrail is a review aid, not a complete dependency or runtime-impact guarantee.
+      Static analysis results and AI hypotheses are clearly labelled.
+    </p>
+  </section>
+</main>
+
+<!-- ── Results ──────────────────────────────────────────────── -->
+<section *ngIf="result" class="results-section fade-in" aria-label="Analysis results">
+
+  <!-- Commit summary bar -->
+  <div class="commit-bar">
+    <div class="commit-meta">
+      <div class="commit-title">{{ demoCommitMessage || 'Commit analyzed' }}</div>
+      <div class="commit-subtitle">
+        <span class="commit-sha">{{ shortSha(result.commitSha) }}</span>
+        <span *ngIf="result.commitAuthor">by {{ result.commitAuthor }}</span>
+        <span *ngIf="result.commitDate">{{ formatDate(result.commitDate) }}</span>
+        <a
+          [href]="githubCommitUrl(result.repository, result.commitSha)"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="gh-link"
+          aria-label="View commit on GitHub"
+        >
+          GitHub ↗
+        </a>
+      </div>
+    </div>
+
+    <div class="commit-stats">
+      <div class="stat-pill">
+        <span class="stat-num">{{ result.changedFiles.length }}</span>
+        <span class="stat-label">changed</span>
+      </div>
+      <div class="stat-pill">
+        <span class="stat-num">{{ result.relatedFiles.length }}</span>
+        <span class="stat-label">related</span>
+      </div>
+      <div class="stat-pill" *ngIf="result.aiReport && !result.aiReport.isAiFallback">
+        <span style="font-size: 0.85rem">🤖</span>
+        <span class="stat-label">AI</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Warnings -->
+  <div class="warnings-list" *ngIf="result.warnings.length > 0" role="status">
+    <div class="alert alert-warning" *ngFor="let w of result.warnings; trackBy: trackByIndex">
+      <span>⚠</span> {{ w }}
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs-row">
+    <div class="tabs-nav" role="tablist" aria-label="Result sections">
+      <button
+        id="tab-changed"
+        class="tab-btn"
+        [class.active]="activeTab === 'changed'"
+        (click)="setTab('changed')"
+        role="tab"
+        [attr.aria-selected]="activeTab === 'changed'"
+      >
+        📁 Changed Files
+        <span class="tab-count">{{ result.changedFiles.length }}</span>
+      </button>
+
+      <button
+        id="tab-related"
+        class="tab-btn"
+        [class.active]="activeTab === 'related'"
+        (click)="setTab('related')"
+        role="tab"
+        [attr.aria-selected]="activeTab === 'related'"
+      >
+        🔗 Related Files
+        <span class="tab-count">{{ result.relatedFiles.length }}</span>
+      </button>
+
+      <button
+        id="tab-ai"
+        class="tab-btn"
+        [class.active]="activeTab === 'ai'"
+        (click)="setTab('ai')"
+        role="tab"
+        [attr.aria-selected]="activeTab === 'ai'"
+        *ngIf="result.aiReport"
+      >
+        🤖 AI Report
+      </button>
+
+      <button
+        id="tab-graph"
+        class="tab-btn"
+        [class.active]="activeTab === 'graph'"
+        (click)="setTab('graph')"
+        role="tab"
+        [attr.aria-selected]="activeTab === 'graph'"
+        *ngIf="hasGraph"
+      >
+        🕸 Graph
+        <span class="tab-count">{{ result.graph!.nodes.length }}</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Tab: Changed Files ── -->
+  <div *ngIf="activeTab === 'changed'" role="tabpanel" aria-labelledby="tab-changed">
+    <div class="file-list" *ngIf="result.changedFiles.length > 0; else noChanged">
+      <div
+        class="file-card fade-in"
+        *ngFor="let f of result.changedFiles; let i = index; trackBy: trackByIndex"
+      >
+        <div class="file-header" (click)="toggleChanged(i)" [attr.aria-expanded]="isChangedExpanded(i)">
+          <span class="file-icon" aria-hidden="true">{{ getFileIcon(f.path) }}</span>
+
+          <span class="file-path">
+            <span class="file-path-dir">{{ f.path | slice:0:(f.path.lastIndexOf('/') + 1) }}</span>
+            <strong>{{ f.path | slice:(f.path.lastIndexOf('/') + 1) }}</strong>
+          </span>
+
+          <div class="file-actions">
+            <span class="badge badge-{{ f.changeType }}">{{ f.changeType }}</span>
+            <a
+              *ngIf="f.changeType !== 'deleted' && f.changeType !== 'truncated'"
+              [href]="githubFileUrl(result.repository, f.path, result.commitSha)"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="gh-link"
+              (click)="$event.stopPropagation()"
+              aria-label="View file on GitHub"
+            >↗</a>
+            <div class="expand-btn" [attr.aria-label]="isChangedExpanded(i) ? 'Collapse' : 'Expand'">
+              {{ isChangedExpanded(i) ? '▲' : '▼' }}
+            </div>
+          </div>
+        </div>
+
+        <!-- Expanded body -->
+        <div class="file-body" *ngIf="isChangedExpanded(i)">
+          <!-- Renamed indicator -->
+          <div *ngIf="f.previousPath" class="alert alert-info" style="font-size:0.8rem; padding: 8px 12px">
+            Renamed from: <code>{{ f.previousPath }}</code>
+          </div>
+
+          <!-- Changed symbols -->
+          <div *ngIf="f.changedSymbols.length > 0" class="symbols-row">
+            <span class="sym-label">Changed symbols:</span>
+            <span class="chip" *ngFor="let sym of f.changedSymbols; trackBy: trackByIndex">{{ sym }}</span>
+          </div>
+
+          <!-- Diff excerpt -->
+          <div *ngIf="f.diffExcerpt">
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 8px">Diff excerpt:</div>
+            <div class="diff-block">{{ f.diffExcerpt }}</div>
+          </div>
+
+          <div *ngIf="!f.changedSymbols.length && !f.diffExcerpt" style="font-size:0.82rem; color: var(--text-muted)">
+            No additional details available for this file.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <ng-template #noChanged>
+      <div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <div class="empty-title">No changed files</div>
+        <div class="empty-desc">This commit appears to have no file changes.</div>
+      </div>
+    </ng-template>
+  </div>
+
+  <!-- ── Tab: Related Files ── -->
+  <div *ngIf="activeTab === 'related'" role="tabpanel" aria-labelledby="tab-related">
+    <div class="alert alert-info" style="margin-bottom: 16px; font-size: 0.82rem">
+      <span>ℹ</span>
+      <span>
+        These files were identified by <strong>static analysis only</strong> — they reference changed types,
+        share namespaces, implement changed interfaces, or have similar names.
+        Heuristic matches. Not a complete impact guarantee.
+      </span>
+    </div>
+
+    <div class="file-list" *ngIf="result.relatedFiles.length > 0; else noRelated">
+      <div
+        class="file-card fade-in"
+        *ngFor="let f of result.relatedFiles; let i = index; trackBy: trackByIndex"
+      >
+        <div class="file-header" (click)="toggleRelated(i)" [attr.aria-expanded]="isRelatedExpanded(i)">
+          <span class="file-icon" aria-hidden="true">{{ getFileIcon(f.path) }}</span>
+
+          <span class="file-path">
+            <span class="file-path-dir">{{ f.path | slice:0:(f.path.lastIndexOf('/') + 1) }}</span>
+            <strong>{{ f.path | slice:(f.path.lastIndexOf('/') + 1) }}</strong>
+          </span>
+
+          <div class="file-actions">
+            <span class="badge badge-{{ f.priority }}" [attr.aria-label]="f.priority + ' priority'">
+              {{ f.priority }}
+            </span>
+            <a
+              [href]="githubFileUrl(result.repository, f.path, result.commitSha)"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="gh-link"
+              (click)="$event.stopPropagation()"
+              aria-label="View file on GitHub"
+            >↗</a>
+            <div class="expand-btn">{{ isRelatedExpanded(i) ? '▲' : '▼' }}</div>
+          </div>
+        </div>
+
+        <!-- Expanded evidence -->
+        <div class="file-body" *ngIf="isRelatedExpanded(i)">
+          <div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em">
+              Relationship: {{ f.relationship }}
+            </div>
+
+            <div class="evidence-list">
+              <div class="evidence-item" *ngFor="let ev of f.evidence; trackBy: trackByIndex">
+                <span class="evidence-bullet">◆</span>
+                <span>{{ ev }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="confidence-row">
+            <span class="confidence-pct" [style.color]="getPriorityColor(f.priority)">
+              {{ (f.confidence * 100).toFixed(0) }}%
+            </span>
+            <div class="confidence-bar">
+              <div
+                class="confidence-fill"
+                [style.width]="confidenceWidth(f.confidence)"
+                [style.background]="getPriorityColor(f.priority)"
+              ></div>
+            </div>
+            <span style="font-size: 0.72rem; color: var(--text-muted)">confidence</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <ng-template #noRelated>
+      <div class="empty-state">
+        <div class="empty-icon">🔎</div>
+        <div class="empty-title">No related C# files found</div>
+        <div class="empty-desc">
+          Either no C# files were changed, or no other files reference the changed types.
+        </div>
+      </div>
+    </ng-template>
+  </div>
+
+  <!-- ── Tab: AI Report ── -->
+  <div *ngIf="activeTab === 'ai' && result.aiReport" role="tabpanel" aria-labelledby="tab-ai">
+    <div class="ai-report">
+      <!-- AI header -->
+      <div class="ai-header">
+        <div [class]="result.aiReport.isAiFallback ? 'ai-badge ai-fallback-badge' : 'ai-badge'">
+          <span>{{ result.aiReport.isAiFallback ? '⚠' : '✨' }}</span>
+          {{ result.aiReport.isAiFallback ? 'Static Analysis Only' : 'Gemini 2.0 Flash' }}
+        </div>
+        <p class="ai-summary">{{ result.aiReport.summary }}</p>
+      </div>
+
+      <!-- Fallback note -->
+      <div class="alert alert-warning" *ngIf="result.aiReport.isAiFallback">
+        <span>⚠</span>
+        AI analysis is unavailable. Set the <code>GEMINI_API_KEY</code> environment variable on the backend and restart.
+      </div>
+
+      <!-- Possible Impacts -->
+      <div class="ai-section" *ngIf="result.aiReport.possibleImpacts.length > 0">
+        <div class="ai-section-header">
+          <span class="ai-section-icon">💥</span>
+          Possible Impacts
+          <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 400; margin-left: auto">
+            AI hypotheses — not confirmed facts
+          </span>
+        </div>
+        <div class="ai-items">
+          <div
+            class="ai-item"
+            *ngFor="let item of result.aiReport.possibleImpacts; let i = index; trackBy: trackByIndex"
+            [style.animation-delay]="(i * 50) + 'ms'"
+          >
+            <div class="ai-item-num">{{ i + 1 }}</div>
+            <span>{{ item }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Suggested Tests -->
+      <div class="ai-section" *ngIf="result.aiReport.suggestedTests.length > 0">
+        <div class="ai-section-header">
+          <span class="ai-section-icon">🧪</span>
+          Suggested Tests
+        </div>
+        <div class="ai-items">
+          <div
+            class="ai-item ai-item-test"
+            *ngFor="let item of result.aiReport.suggestedTests; let i = index; trackBy: trackByIndex"
+            [style.animation-delay]="(i * 50) + 'ms'"
+          >
+            <div class="ai-item-num">{{ i + 1 }}</div>
+            <span>{{ item }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Limitations -->
+      <div class="ai-section" *ngIf="result.aiReport.limitations.length > 0">
+        <div class="ai-section-header">
+          <span class="ai-section-icon">⚠️</span>
+          Limitations
+        </div>
+        <div class="ai-items">
+          <div
+            class="ai-item ai-item-limit"
+            *ngFor="let item of result.aiReport.limitations; let i = index; trackBy: trackByIndex"
+          >
+            <div class="ai-item-num">{{ i + 1 }}</div>
+            <span>{{ item }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tab: Graph ── -->
+  <div *ngIf="activeTab === 'graph' && hasGraph" role="tabpanel" aria-labelledby="tab-graph">
+    <div class="alert alert-info" style="margin-bottom: 16px; font-size: 0.82rem">
+      <span>ℹ</span>
+      Simplified relationship map. Edges represent static-analysis connections, not runtime call graphs.
+    </div>
+
+    <div class="graph-area">
+      <div class="graph-legend">
+        <div class="legend-item"><div class="legend-dot changed"></div> Changed files</div>
+        <div class="legend-item"><div class="legend-dot related"></div> Related files</div>
+        <div class="legend-item"><div class="legend-dot test"></div> Test files</div>
+      </div>
+
+      <div class="graph-nodes">
+        <!-- Changed nodes -->
+        <div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px">
+            Changed
+          </div>
+          <div class="graph-changed-row">
+            <div
+              class="graph-node changed"
+              *ngFor="let node of result.graph!.nodes | filterKind:'changed'; trackBy: trackByIndex"
+            >
+              <span>●</span> {{ node.label }}
+            </div>
+          </div>
+        </div>
+
+        <!-- Arrow -->
+        <div class="graph-arrow" *ngIf="result.graph!.nodes.length > 1">
+          ↓ static analysis links
+        </div>
+
+        <!-- Related nodes -->
+        <div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px">
+            Potentially impacted
+          </div>
+          <div class="graph-changed-row">
+            <div
+              class="graph-node"
+              [class]="node.kind"
+              *ngFor="let node of result.graph!.nodes | filterKind:'related'; trackBy: trackByIndex"
+            >
+              <span>●</span> {{ node.label }}
+            </div>
+            <div
+              class="graph-node test"
+              *ngFor="let node of result.graph!.nodes | filterKind:'test'; trackBy: trackByIndex"
+            >
+              <span>🧪</span> {{ node.label }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<!-- ── Footer ── -->
+<footer class="footer" role="contentinfo">
+  CodeTrail — C# Change-Impact Explorer &nbsp;·&nbsp;
+  Static analysis + Gemini AI &nbsp;·&nbsp;
+  <span style="color: var(--text-muted)">Heuristic results only. Never executes analyzed code.</span>
+</footer>
