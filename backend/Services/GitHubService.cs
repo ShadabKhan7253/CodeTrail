@@ -134,19 +134,22 @@ public class GitHubService(HttpClient http, IConfiguration config, ILogger<GitHu
     {
         try
         {
-            // 1. Try raw.githubusercontent.com first (unlimited rate limit for public repositories)
+            // 1. Try raw.githubusercontent.com first (quick 2.5s timeout for fast fallback on newly pushed commits)
+            using var rawCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            rawCts.CancelAfter(TimeSpan.FromMilliseconds(2500));
+
             var rawUrl = $"https://raw.githubusercontent.com/{owner}/{repo}/{sha}/{path}";
             using var rawReq = new HttpRequestMessage(HttpMethod.Get, rawUrl);
             rawReq.Headers.UserAgent.ParseAdd("CodeTrail/1.0");
-            using var rawResp = await http.SendAsync(rawReq, ct);
+            using var rawResp = await http.SendAsync(rawReq, rawCts.Token);
             if (rawResp.IsSuccessStatusCode)
             {
                 return await rawResp.Content.ReadAsStringAsync(ct);
             }
         }
-        catch (Exception ex)
+        catch
         {
-            logger.LogDebug("raw.githubusercontent.com failed for {Path}: {Msg}", path, ex.Message);
+            // Fall back immediately to GitHub REST Contents API
         }
 
         try

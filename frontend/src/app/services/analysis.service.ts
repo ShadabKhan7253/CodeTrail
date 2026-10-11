@@ -6,7 +6,7 @@ import { AnalysisRequest, AnalysisResponse } from '../models/analysis.models';
 
 @Injectable({ providedIn: 'root' })
 export class AnalysisService {
-  private readonly apiBase = 'http://localhost:5000/api';
+  private readonly apiBase = 'http://localhost:5050/api';
 
   constructor(private http: HttpClient) {}
 

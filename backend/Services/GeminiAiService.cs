@@ -12,7 +12,7 @@ namespace CodeTrail.Api.Services;
 /// </summary>
 public class GeminiAiService(HttpClient http, IConfiguration config, ILogger<GeminiAiService> logger)
 {
-    private const string ApiBase = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+    private const string ApiBase = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent";
     private const int TimeoutSeconds = 30;
 
     private static readonly string SystemInstruction =
@@ -161,10 +161,18 @@ public class GeminiAiService(HttpClient http, IConfiguration config, ILogger<Gem
             if (string.IsNullOrWhiteSpace(text))
                 return FallbackReport("Gemini returned an empty response.");
 
-            // Strip markdown code fences if present
+            // Extract JSON object from output (handles markdown fences and thoughts)
             text = text.Trim();
-            if (text.StartsWith("```")) text = text[(text.IndexOf('\n') + 1)..];
-            if (text.EndsWith("```")) text = text[..text.LastIndexOf("```")];
+            var jsonMatch = System.Text.RegularExpressions.Regex.Match(text, @"\{[\s\S]*\}");
+            if (jsonMatch.Success)
+            {
+                text = jsonMatch.Value;
+            }
+            else
+            {
+                if (text.StartsWith("```")) text = text[(text.IndexOf('\n') + 1)..];
+                if (text.EndsWith("```")) text = text[..text.LastIndexOf("```")];
+            }
 
             using var inner = JsonDocument.Parse(text.Trim());
             var r = inner.RootElement;

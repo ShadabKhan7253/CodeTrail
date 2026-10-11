@@ -63,16 +63,21 @@ public class AnalysisOrchestrator(
 
         if (csharpChanged.Count > 0)
         {
-            // ── 4. Fetch content for changed .cs files ────────────────────────
-            var changedContents = new Dictionary<string, string>();
-            foreach (var f in csharpChanged)
+            // ── 4. Fetch content for changed .cs files in parallel ────────────
+            var changedContents = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
+            await Task.WhenAll(csharpChanged.Select(async f =>
             {
                 var content = await github.GetFileContentAsync(owner, repo, commit.Sha, f.Path, ct);
                 if (content != null && content.Length <= MaxFileBytes)
                 {
                     changedContents[f.Path] = content;
+                }
+            }));
 
-                    // Supplement symbols if diff didn't include class declarations
+            foreach (var f in csharpChanged)
+            {
+                if (changedContents.TryGetValue(f.Path, out var content))
+                {
                     var cf = changedFiles.FirstOrDefault(x => x.Path == f.Path);
                     if (cf != null && cf.ChangedSymbols.Count == 0)
                     {
@@ -121,7 +126,7 @@ public class AnalysisOrchestrator(
 
             // ── 6. Static analysis ────────────────────────────────────────────
             var candidates = CSharpAnalyzer.FindCandidates(
-                changedContents,
+                changedContents.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
                 candidateContents.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
                 commit.Files);
 
