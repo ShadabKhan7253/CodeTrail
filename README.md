@@ -1,203 +1,315 @@
 # CodeTrail 🔍
 
-**AI-assisted Visual Change-Impact Explorer for C#/.NET repositories**
+> **AI-Assisted Visual Change-Impact Explorer for C#/.NET Repositories**
 
-CodeTrail accepts a public GitHub repository URL and commit SHA, identifies all changed files, finds potentially related source files using static C# analysis, and uses Google Gemini AI to explain possible impacts and suggest targeted tests.
-
----
-
-## Architecture
-
-```
-frontend/          Angular 22 SPA (http://localhost:4200)
-backend/           ASP.NET Core 10 Web API (http://localhost:5000)
-  ├── Controllers/    AnalysisController (POST /api/analysis, GET /api/health)
-  ├── Services/
-  │   ├── GitHubService.cs       – GitHub REST API client
-  │   ├── CSharpAnalyzer.cs      – Regex-based static impact analysis
-  │   ├── GeminiAiService.cs     – Google Gemini 2.0 Flash integration
-  │   └── AnalysisOrchestrator.cs – Pipeline coordinator
-  └── Models/         DTOs and internal models
-```
+CodeTrail helps developers and reviewers instantly understand the blast radius of any commit in a C# repository. Given a public GitHub repository URL and commit SHA, CodeTrail identifies changed files, extracts code symbols, traces dependent and affected source files using static analysis, and uses Google Gemini AI to formulate impact hypotheses and suggest targeted tests.
 
 ---
 
-## Quick Start
+## 📑 Table of Contents
+- [Architecture & Tech Stack](#-architecture--tech-stack)
+- [Prerequisites](#-prerequisites)
+- [Step-by-Step Setup Guide](#-step-by-step-setup-guide)
+  - [1. Clone Repository](#1-clone-repository)
+  - [2. Configure API Keys](#2-configure-api-keys)
+  - [3. Start Backend (.NET Web API)](#3-start-backend-net-web-api)
+  - [4. Start Frontend (Angular SPA)](#4-start-frontend-angular-spa)
+- [Testing & Demoing CodeTrail](#-testing--demoing-codetrail)
+  - [Recommended Demo Commit](#recommended-demo-commit)
+  - [Alternative Public Repo Demo](#alternative-public-repo-demo)
+- [Static Analysis & AI Pipeline](#-static-analysis--ai-pipeline)
+- [API Reference](#-api-reference)
+- [Security & Rate Limiting](#-security--rate-limiting)
+- [Troubleshooting & FAQs](#-troubleshooting--faqs)
 
-### Prerequisites
+---
 
-| Tool | Version |
-|------|---------|
-| .NET SDK | 10.x |
-| Node.js | 18+ |
-| npm | 10+ |
+## 🏗 Architecture & Tech Stack
 
-### 1. Set environment variables (backend)
+```
+CodeTrail/
+├── frontend/               # Angular 22 Single Page Application (http://localhost:4200)
+│   ├── src/app/
+│   │   ├── components/     # Analysis form, File diff, Graph viewer, AI Report card
+│   │   ├── services/       # AnalysisService (HTTP client to backend)
+│   │   └── models/         # TypeScript analysis contracts
+└── backend/                # ASP.NET Core 10 Web API (http://localhost:5050)
+    ├── Controllers/        # AnalysisController (POST /api/analysis, GET /api/health)
+    ├── Services/
+    │   ├── GitHubService.cs        # GitHub REST client with raw content fallback
+    │   ├── CSharpAnalyzer.cs       # Static symbol & reference extraction
+    │   ├── GeminiAiService.cs      # Google Gemini 3.8 Flash AI reasoning
+    │   └── AnalysisOrchestrator.cs # Parallelized pipeline coordinator
+    ├── Models/             # C# DTOs and analysis graph models
+    ├── appsettings.json    # Base configuration
+    └── appsettings.Local.json # Untracked local secret configuration
+```
+
+| Component | Technology | Default URL / Port |
+|-----------|------------|---------------------|
+| **Backend API** | ASP.NET Core 10, C# | `http://localhost:5050` |
+| **Frontend UI** | Angular 22, TypeScript, Vanilla CSS | `http://localhost:4200` |
+| **AI Engine** | Google Gemini `gemini-3.8-flash` | REST API via Google AI Studio |
+| **Code Source** | GitHub REST API + raw content endpoints | api.github.com |
+
+---
+
+## ⚙️ Prerequisites
+
+Before getting started, make sure you have the following installed on your system:
+
+| Tool | Minimum Version | Installation Link |
+|------|-----------------|-------------------|
+| **.NET SDK** | .NET 10.x | [Download .NET SDK](https://dotnet.microsoft.com/download) |
+| **Node.js** | 18.x or 20.x+ | [Download Node.js](https://nodejs.org/) |
+| **npm** | 9.x+ | Bundled with Node.js |
+| **Git** | 2.x+ | [Download Git](https://git-scm.com/) |
+
+---
+
+## 🚀 Step-by-Step Setup Guide
+
+### 1. Clone Repository
 
 ```bash
-export GEMINI_API_KEY="your-gemini-api-key-here"
-# Optional — increases GitHub rate limit from 60 to 5000 req/hr:
-export GITHUB_TOKEN="your-github-personal-access-token"
+git clone https://github.com/ShadabKhan7253/CodeTrail.git
+cd CodeTrail
 ```
 
-### 2. Start the backend
+---
+
+### 2. Configure API Keys
+
+CodeTrail requires a **Google Gemini API Key** for AI impact analysis. A **GitHub Token** is optional, but recommended to avoid unauthenticated GitHub rate limits (60 requests/hr vs. 5,000/hr).
+
+> [!TIP]
+> **Get a free Gemini API key**: [Google AI Studio](https://aistudio.google.com/app/apikey).
+
+You can configure your keys using either of the two methods below:
+
+#### Method A: Local JSON File (Recommended for Local Dev)
+Create a file named `appsettings.Local.json` in the `backend/` directory (this file is already in `.gitignore` and won't be pushed):
+
+```bash
+# In CodeTrail/backend/appsettings.Local.json
+{
+  "GEMINI_API_KEY": "your_gemini_api_key_here",
+  "GITHUB_TOKEN": "your_optional_github_token_here"
+}
+```
+
+#### Method B: Environment Variables
+Alternatively, export the keys in your shell:
+
+```bash
+# macOS / Linux
+export GEMINI_API_KEY="your_gemini_api_key_here"
+export GITHUB_TOKEN="your_optional_github_token_here"
+
+# Windows (Command Prompt)
+set GEMINI_API_KEY=your_gemini_api_key_here
+set GITHUB_TOKEN=your_optional_github_token_here
+
+# Windows (PowerShell)
+$env:GEMINI_API_KEY="your_gemini_api_key_here"
+$env:GITHUB_TOKEN="your_optional_github_token_here"
+```
+
+---
+
+### 3. Start Backend (.NET Web API)
+
+The backend runs on **port 5050** to avoid conflicts with macOS ControlCenter / AirPlay Receiver:
 
 ```bash
 cd backend
 dotnet run
-# → Listening on http://localhost:5000
 ```
 
-### 3. Start the frontend
+You should see:
+```text
+Building...
+info: Microsoft.Hosting.Lifetime[14]
+      Now listening on: http://localhost:5050
+info: Microsoft.Hosting.Lifetime[0]
+      Application started. Press Ctrl+C to shut down.
+```
+
+**Verify Backend Health**:
+Open `http://localhost:5050/api/health` in your browser or curl:
+```bash
+curl http://localhost:5050/api/health
+# Output: {"status":"healthy","service":"CodeTrail.Api"}
+```
+
+---
+
+### 4. Start Frontend (Angular SPA)
+
+In a new terminal window:
 
 ```bash
 cd frontend
-npm install    # only needed first time
+npm install
 npm start
-# → http://localhost:4200
 ```
+
+The Angular dev server will compile and start at `http://localhost:4200`.
+
+Open your browser to:
+👉 **[http://localhost:4200](http://localhost:4200)**
 
 ---
 
-## Required Environment Variables
+## 🧪 Testing & Demoing CodeTrail
 
-| Variable | Required | Purpose |
-|----------|----------|---------|
-| `GEMINI_API_KEY` | Yes (for AI) | Google Generative AI API key |
-| `GITHUB_TOKEN` | No | GitHub PAT to raise rate limit to 5000/hr |
+### Recommended Demo Commit
 
-**Never put these in the Angular frontend.** They live only in backend environment variables.
+We prepared a dedicated sample C# e-commerce repository with real services, domain models, and unit tests:
+
+| Field | Value |
+|-------|-------|
+| **Repository URL** | `https://github.com/ShadabKhan7253/CodeTrailSampleApp` |
+| **Commit SHA** | `10e1fb8` |
+
+#### Steps to Test:
+1. Open `http://localhost:4200`.
+2. Enter the Repository URL: `https://github.com/ShadabKhan7253/CodeTrailSampleApp`.
+3. Enter Commit SHA: `10e1fb8`.
+4. Click **Analyze Commit**.
+5. Observe:
+   - **Changed Files**: `BookDiscountService.cs` (adds a 15% VIP discount rule).
+   - **Static Impact Analysis**: Identifies 5 affected files (`OrderProcessingService.cs`, `CheckoutWorkflow.cs`, `DiscountEngineTests.cs`, etc.) with high/medium confidence based on type references and namespace imports.
+   - **Interactive Graph**: Visual interactive dependency graph (Red = changed file, Blue = dependent/related file, Green = unit tests).
+   - **Gemini AI Report**: Hypothesis summarizing business impact, risk factors, and recommended unit/integration tests.
 
 ---
 
-## API Reference
+### Alternative Public Repo Demo
 
-### `GET /api/health`
-Returns `{ "status": "ok", "timestamp": "..." }`.
+You can also run CodeTrail against popular public C# open-source projects:
 
-### `POST /api/analysis`
+| Field | Value | Description |
+|-------|-------|-------------|
+| **Repository URL** | `https://github.com/ardalis/CleanArchitecture` | Popular C# Clean Architecture template |
+| **Commit SHA** | `94839929c4a71d2062bd6a6dc144e0d38d4d88f8` | C# test modification |
 
-**Request:**
-```json
-{
-  "repositoryUrl": "https://github.com/owner/repo",
-  "commitSha": "full-or-partial-sha"
-}
+---
+
+## 🔍 Static Analysis & AI Pipeline
+
+CodeTrail operates entirely via remote repository inspection — **no local cloning or code execution required**:
+
+1. **GitHub Commit Ingestion**:
+   - Fetches commit metadata, changed files, and unified git diffs via GitHub REST API.
+2. **Regex-Based Symbol Extraction**:
+   - Parses declared namespaces, classes, interfaces, records, structs, and methods inside changed files.
+3. **Candidate Tree & Reference Tracing**:
+   - Inspects the repository file tree.
+   - Downloads candidate `.cs` files concurrently.
+   - Evaluates syntactic type references, `using` namespace directives, interface implementations, and naming proximity.
+4. **Impact Scoring**:
+   - Computes relationship scores (`high`, `medium`, `low`) with concrete evidence markers.
+5. **Gemini 3.8 Flash AI Synthesis**:
+   - Passes the diff and affected symbol graph to Google Gemini.
+   - Formulates explainable hypotheses: why the code changed, potential ripple effects, edge cases, and targeted tests.
+
+---
+
+## 📡 API Reference
+
+### Health Check
+```http
+GET /api/health
 ```
-
 **Response:**
 ```json
 {
-  "repository": "owner/repo",
-  "commitSha": "abc123...",
-  "commitMessage": "...",
-  "commitAuthor": "...",
-  "commitDate": "...",
+  "status": "healthy",
+  "service": "CodeTrail.Api"
+}
+```
+
+### Run Impact Analysis
+```http
+POST /api/analysis
+Content-Type: application/json
+```
+**Request Body:**
+```json
+{
+  "repositoryUrl": "https://github.com/owner/repository",
+  "commitSha": "abc1234",
+  "geminiApiKey": "optional-override-key",
+  "gitHubToken": "optional-override-token"
+}
+```
+
+**Response Format:**
+```json
+{
+  "repository": "owner/repository",
+  "commitSha": "abc1234...",
+  "commitMessage": "feat: add VIP discount logic",
+  "author": "developer",
+  "date": "2026-10-11T...",
   "changedFiles": [
     {
-      "path": "src/Foo.cs",
-      "changeType": "modified",
-      "changedSymbols": ["FooService"],
-      "diffExcerpt": "..."
+      "path": "Services/BookDiscountService.cs",
+      "status": "modified",
+      "additions": 12,
+      "deletions": 2,
+      "diffExcerpt": "@@ ... @@",
+      "extractedSymbols": ["BookDiscountService", "ApplyVipDiscount"]
     }
   ],
   "relatedFiles": [
     {
-      "path": "src/Bar.cs",
+      "path": "Services/OrderProcessingService.cs",
       "relationship": "Type reference",
-      "evidence": ["References changed type 'FooService'"],
-      "priority": "high",
-      "confidence": 0.73
+      "confidence": 0.85,
+      "evidence": ["References changed type 'BookDiscountService'"]
     }
   ],
-  "graph": { "nodes": [...], "edges": [...] },
   "aiReport": {
-    "summary": "...",
-    "possibleImpacts": ["..."],
-    "suggestedTests": ["..."],
-    "limitations": ["..."],
-    "isAiFallback": false
-  },
-  "warnings": []
+    "summary": "This commit adds a 15% VIP discount check...",
+    "possibleImpacts": ["Existing orders might calculate lower totals..."],
+    "suggestedTests": ["Verify order checkout with VIP flag enabled and disabled"]
+  }
 }
 ```
 
 ---
 
-## Demo Commit
+## 🔒 Security & Rate Limiting
 
-A reliable demo for a live presentation:
+- **No Code Execution**: CodeTrail never builds or executes arbitrary code from analyzed repositories.
+- **Strict HTTPS Validation**: Only standard `https://github.com/{owner}/{repo}` repositories are accepted.
+- **Secret Isolation**: Secrets in `appsettings.Local.json` are excluded from source control.
+- **Rate Limits**:
+  - Unauthenticated GitHub API calls allow 60 requests/hour.
+  - Adding a free GitHub Personal Access Token (`GITHUB_TOKEN`) increases the limit to 5,000 requests/hour.
 
+---
+
+## ❓ Troubleshooting & FAQs
+
+### Q: Port 5050 or 5000 is already in use
+**A:** On macOS Monterey/Ventura/Sonoma, port 5000 is often reserved by Apple's AirPlay Receiver. CodeTrail uses **port 5050** by default. To kill an existing process on port 5050:
+```bash
+# Find PID
+lsof -i :5050
+# Kill process
+kill -9 <PID>
 ```
-Repository URL: https://github.com/ardalis/CleanArchitecture
-Commit SHA:     94839929c4a71d2062bd6a6dc144e0d38d4d88f8
-```
 
-This commit modifies a C# test file, demonstrating changed-symbol extraction, related-file candidates, and AI explanation.
+### Q: "Push cannot contain secrets" on GitHub
+**A:** Never commit your actual API keys into `backend/appsettings.json`. Always put your keys into `backend/appsettings.Local.json` or your terminal's environment variables.
 
----
-
-## Static Analysis Approach
-
-CodeTrail uses **regex-based** C# analysis (no Roslyn required):
-
-1. **Symbol extraction** — extracts `namespace`, `class`, `interface`, `record`, `struct`, `enum` names from changed files.
-2. **Reference scanning** — searches the bounded repo file tree for files that:
-   - Import changed namespaces via `using` directives
-   - Reference changed type names at word boundaries
-   - Inherit from or implement changed types (via inheritance syntax scanning)
-   - Have similar filenames to changed files
-   - Are test files (xUnit, NUnit, MSTest markers) that reference changed code
-3. **Evidence ranking** — each candidate is scored by evidence strength and ranked high/medium/low.
-
-**Limits:** Up to 500 files in the tree scan, 60 files downloaded for analysis, 40 KB per file, 4 KB patch excerpt.
+### Q: How do I stop the servers?
+**A:** Press `Ctrl + C` in the respective terminal windows where `dotnet run` or `npm start` are executing.
 
 ---
 
-## Security Notes
-
-- Only accepts HTTPS `github.com` URLs — rejects arbitrary hosts.
-- Never executes repository code, build scripts, or tests.
-- API keys are backend-only, never sent to Angular.
-- All repository content is treated as untrusted text data.
-- AI output is validated server-side before display; hallucinated file paths are not surfaced.
-- Diff excerpts and file contents are rendered as text, not HTML.
-
----
-
-## Known Limitations
-
-- **Unauthenticated GitHub API**: 60 requests/hour without `GITHUB_TOKEN`.
-- **Large repos**: Analysis is capped at 60 files. Set `GITHUB_TOKEN` for better coverage.
-- **Non-.cs changes**: Impact analysis only runs when .cs files are changed.
-- **Static analysis is heuristic** — it finds likely candidates, not guaranteed impacts.
-- **AI is hypothesis-only** — the model may be wrong; evidence from static analysis is the ground truth.
-- **No runtime analysis** — class instantiation, DI, and dynamic dispatch are not captured.
-- **Merge commits** with no unique diff produce no results (a warning is shown).
-
----
-
-## Two-Minute Demo Script
-
-1. Open `http://localhost:4200`.
-2. Paste `https://github.com/ardalis/CleanArchitecture` and `94839929c4a71d2062bd6a6dc144e0d38d4d88f8`.
-3. Click **Analyze Commit** — show the real changed-file list with diff excerpt.
-4. Switch to **Related Files** — expand a card and show the static evidence bullets.
-5. Switch to **AI Report** — show the impact summary and suggested tests, noting "these are AI hypotheses, not confirmed facts."
-6. Switch to **Graph** — explain the visual: red = changed, blue = related, green = test.
-7. Point out the warning banner: "This is a review aid, not a complete dependency guarantee."
-
----
-
-## License
-
-MIT — see `LICENSE` file.
-
----
-
-## AI Model Attribution
-
-- **Model**: `gemini-2.0-flash` (Google Gemini)  
-- **Provider**: Google  
-- **License**: Proprietary / Google AI Terms of Service  
-- **Use**: Hypothesis generation only; output is clearly labelled as AI-generated.
+## 📄 License
+MIT License. Built for developers, teams, and reviewers who want visual clarity on code changes.
